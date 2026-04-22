@@ -1360,6 +1360,54 @@ body{background:var(--body-bg);}
   </div>
   <div style="padding:8px 12px 20px;width:100%;max-width:500px"><button class="btn dan" onclick="leaveGame()"><span>Çık</span></button></div>
 </div>
+
+<!-- ARKADAŞLAR -->
+<div id="screen-friends" class="screen">
+  <div class="ghdr"><button class="backbtn" onclick="showSc('home')">← Menü</button><div class="ghtitle">👥 ARKADAŞLAR</div><div style="width:55px"></div></div>
+  <div style="width:100%;max-width:520px;padding:0 14px;display:flex;flex-direction:column;gap:10px;">
+    <!-- Arkadaş ekleme -->
+    <div style="background:var(--s);border:1px solid var(--bd);border-radius:10px;padding:12px;">
+      <div style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--gold);letter-spacing:0.12em;margin-bottom:8px;">ARKADAŞ EKLE</div>
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="friend-search-input" placeholder="Kullanıcı adı..." style="flex:1;padding:8px 10px;font-size:0.85rem;">
+        <button class="tavbtn primary" onclick="friendSearch()">Ara</button>
+      </div>
+      <div id="friend-search-results" style="margin-top:8px;"></div>
+    </div>
+    
+    <!-- Gelen istekler -->
+    <div style="background:var(--s);border:1px solid var(--bd);border-radius:10px;padding:12px;" id="friend-requests-panel">
+      <div style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--gold);letter-spacing:0.12em;margin-bottom:8px;">GELEN İSTEKLER <span id="friend-requests-count" style="color:var(--muted);">(0)</span></div>
+      <div id="friend-requests-list"><div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:10px;">Bekleyen istek yok</div></div>
+    </div>
+    
+    <!-- Arkadaş listesi -->
+    <div style="background:var(--s);border:1px solid var(--bd);border-radius:10px;padding:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--gold);letter-spacing:0.12em;">ARKADAŞLARIM <span id="friends-count" style="color:var(--muted);">(0)</span></div>
+      </div>
+      <div id="friends-list"><div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:10px;">Henüz arkadaş yok</div></div>
+    </div>
+  </div>
+  <div style="padding:20px;"><button class="btn dan" onclick="showSc('home')"><span>Geri</span></button></div>
+</div>
+
+<!-- ARKADAŞ CHAT -->
+<div id="screen-friend-chat" class="screen">
+  <div class="ghdr"><button class="backbtn" onclick="showSc('friends')">← Arkadaşlar</button><div class="ghtitle" id="friend-chat-title">💬 CHAT</div><div style="width:55px"></div></div>
+  <div style="width:100%;max-width:520px;padding:0 14px;display:flex;flex-direction:column;gap:8px;">
+    <div id="friend-chat-status" style="font-family:'Cinzel',serif;font-size:0.7rem;color:var(--muted);text-align:center;padding:4px;"></div>
+    <div id="friend-chat-messages" style="background:var(--s);border:1px solid var(--bd);border-radius:10px;padding:10px;min-height:360px;max-height:500px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+    <div style="display:flex;gap:6px;">
+      <input type="text" id="friend-chat-input" placeholder="Mesaj yaz..." maxlength="200" 
+        onkeydown="if(event.key==='Enter')friendSendMessage()" 
+        style="flex:1;padding:10px 12px;font-size:0.9rem;">
+      <button class="tavbtn primary" onclick="friendSendMessage()">Gönder</button>
+    </div>
+    <button class="tavbtn" onclick="friendInviteToGame()" style="margin-top:4px;">🎮 Oyuna Davet Et</button>
+  </div>
+  <div style="padding:20px;"><button class="btn dan" onclick="showSc('friends')"><span>Geri</span></button></div>
+</div>
 <div id="screen-gameover" class="screen">
   <div style="height:60px"></div>
   <div class="gopanel">
@@ -3572,8 +3620,15 @@ function asmacaGuess(letter){
   if(AsmacaState.mode==='multi'&&!AsmacaState.myTurn){toast('Sıra sende değil!');return;}
   if(AsmacaState.guessed.includes(letter)||AsmacaState.wrong.includes(letter))return;
   if(AsmacaState.mode==='multi'){
-    sendToAll({t:'asmaca-guess',letter});
-    return; // host işleyecek
+    if(isHost){
+      // Host: direkt uygula ve guest'e gönder
+      asmacaApplyGuess(letter);
+      broadcastAll({t:'asmaca-apply',letter,guessed:AsmacaState.guessed,wrong:AsmacaState.wrong,fromIdx:myIdx});
+    } else {
+      // Guest: host'a gönder
+      sendToHost({t:'asmaca-guess',letter});
+    }
+    return;
   }
   asmacaApplyGuess(letter);
 }
@@ -3590,27 +3645,41 @@ function asmacaApplyGuess(letter){
   const won=AsmacaState.word.split('').every(l=>AsmacaState.guessed.includes(l));
   const lost=AsmacaState.wrong.length>=AsmacaState.maxWrong;
   if(won){
-    document.getElementById('asmaca-status').textContent='🎉 Tebrikler! Kelimeyi buldun!';
-    playFx('win');
+    const stat=document.getElementById('asmaca-status');
     if(AsmacaState.mode==='multi'){
-      // Kazanan puanı al
-      if(AsmacaState.myTurn){
+      // Tahmin eden kazanır (guesser)
+      if(myIdx===AsmacaState.guesser){
+        stat.textContent='🎉 Kelimeyi buldun! +1 puan';
         AsmacaState.myScore++;
-        if(isHost)broadcastAll({t:'asmaca-score',winner:myIdx});
+      } else {
+        stat.textContent='😢 Rakip kelimeyi buldu!';
+        AsmacaState.oppScore++;
       }
-      setTimeout(()=>asmacaMultiStart(),2000);
+      playFx('win');
+      if(isHost)broadcastAll({t:'asmaca-round-end',winner:AsmacaState.guesser,word:AsmacaState.word});
+      setTimeout(()=>{if(isHost)broadcastAll({t:'asmaca-new-round'});asmacaMultiStart();},2500);
+    } else {
+      stat.textContent='🎉 Tebrikler! Kelimeyi buldun!';
+      playFx('win');
     }
   } else if(lost){
-    document.getElementById('asmaca-status').textContent='😢 Kaybettin! Kelime: '+AsmacaState.word;
+    const stat=document.getElementById('asmaca-status');
     if(AsmacaState.mode==='multi'){
-      // Kelimeyi yazan puan alır
-      if(!AsmacaState.myTurn){
+      // Kelime yazan kazanır (wordWriter)
+      if(myIdx===AsmacaState.wordWriter){
+        stat.textContent='😊 Rakip bulamadı! +1 puan · Kelime: '+AsmacaState.word;
         AsmacaState.myScore++;
-        if(isHost)broadcastAll({t:'asmaca-score',winner:myIdx});
+      } else {
+        stat.textContent='😢 Kelimeyi bulamadın! Kelime: '+AsmacaState.word;
+        AsmacaState.oppScore++;
       }
-      setTimeout(()=>asmacaMultiStart(),2000);
+      if(isHost)broadcastAll({t:'asmaca-round-end',winner:AsmacaState.wordWriter,word:AsmacaState.word});
+      setTimeout(()=>{if(isHost)broadcastAll({t:'asmaca-new-round'});asmacaMultiStart();},2500);
+    } else {
+      stat.textContent='😢 Kaybettin! Kelime: '+AsmacaState.word;
     }
   }
+  rAsmaca();
 }
 
 function rAsmaca(){
@@ -3662,33 +3731,39 @@ function rAsmaca(){
 }
 
 function asmacaMsg(d){
-  if(d.fromIdx===myIdx)return;
+  if(d.fromIdx===myIdx&&d.t!=='asmaca-apply'&&d.t!=='asmaca-round-end'&&d.t!=='asmaca-new-round')return;
   if(d.t==='asmaca-word'){
-    // Rakip kelimeyi gönderdi, ben tahmin ediyorum
+    // Rakip kelimeyi gönderdi, ben tahmin ediyorum (ben guesser)
     AsmacaState.word=d.word;
     AsmacaState.guessed=[];AsmacaState.wrong=[];
-    AsmacaState.myTurn=true;
+    AsmacaState.myTurn=true; // guesser olduğumuz için tahmin edebiliriz
     document.getElementById('asmaca-multi-setup').style.display='none';
-    rAsmaca();
     document.getElementById('asmaca-status').textContent='';
-    addSys('asmaca','Kelime hazır! Tahmin etmeye başla!');
-  } else if(d.t==='asmaca-guess'&&isHost){
-    // Host tahmin mesajını işle
-    asmacaApplyGuess(d.letter);
-    broadcastAll({t:'asmaca-apply',letter:d.letter,guessed:AsmacaState.guessed,wrong:AsmacaState.wrong});
-  } else if(d.t==='asmaca-apply'){
-    // Guest state güncelle
-    AsmacaState.guessed=d.guessed;
-    AsmacaState.wrong=d.wrong;
     rAsmaca();
-    const won=AsmacaState.word&&AsmacaState.word.split('').every(l=>AsmacaState.guessed.includes(l));
-    const lost=AsmacaState.wrong.length>=AsmacaState.maxWrong;
-    if(won)document.getElementById('asmaca-status').textContent='🎉 Rakip kelimeyi buldu!';
-    else if(lost)document.getElementById('asmaca-status').textContent='😊 Rakip bulamadı! Kelime: '+AsmacaState.word;
-  } else if(d.t==='asmaca-score'){
+    addSys('asmaca','Kelime hazır! Tahmin etmeye başla!');
+    toast('Kelime geldi! Tahmin et');
+  } else if(d.t==='asmaca-guess'&&isHost){
+    // Sadece host guess'leri işler
+    asmacaApplyGuess(d.letter);
+    broadcastAll({t:'asmaca-apply',letter:d.letter,guessed:AsmacaState.guessed,wrong:AsmacaState.wrong,fromIdx:myIdx});
+  } else if(d.t==='asmaca-apply'&&!isHost){
+    // Guest state güncelle (host zaten uyguladı)
+    AsmacaState.guessed=[...d.guessed];
+    AsmacaState.wrong=[...d.wrong];
+    rAsmaca();
+  } else if(d.t==='asmaca-round-end'){
+    // Round bitti, skor güncelle
     if(d.winner===myIdx)AsmacaState.myScore++;
     else AsmacaState.oppScore++;
+    const stat=document.getElementById('asmaca-status');
+    if(stat){
+      if(d.winner===myIdx)stat.textContent='+1 puan! Kelime: '+d.word;
+      else stat.textContent='Rakip +1 puan. Kelime: '+d.word;
+    }
     rAsmaca();
+  } else if(d.t==='asmaca-new-round'&&!isHost){
+    // Host yeni round başlattı, guest de başlatsın
+    setTimeout(()=>asmacaMultiStart(),100);
   }
 }
 
@@ -3995,6 +4070,357 @@ function sosMsg(d){
 }
 
 
+// ============================================================
+// ARKADAŞ SİSTEMİ (Firebase ile - sadece üyeler için)
+// ============================================================
+let friendsListeners={};
+let friendsCurrentChat=null;
+let friendsPresenceRef=null;
+let myFriends={};
+
+function initFriendsSystem(){
+  if(!currentUser||!fbDb){
+    // Misafir: arkadaş butonunu gizle
+    const btn=document.getElementById('friends-btn-home');
+    if(btn)btn.style.display='none';
+    return;
+  }
+  // Üye: arkadaş butonunu göster
+  const btn=document.getElementById('friends-btn-home');
+  if(btn)btn.style.display='inline-flex';
+  
+  // Online presence setup
+  setupPresence();
+  // Arkadaş listesini dinle
+  listenFriends();
+  // Gelen istekleri dinle
+  listenFriendRequests();
+  // Gelen mesajları dinle (tüm arkadaşlar için)
+  listenAllFriendMessages();
+}
+
+function setupPresence(){
+  if(!currentUser||!fbDb)return;
+  const uid=currentUser.uid;
+  const presRef=fbDb.ref('presence/'+uid);
+  const connRef=fbDb.ref('.info/connected');
+  connRef.on('value', snap=>{
+    if(snap.val()===true){
+      presRef.onDisconnect().set({online:false,lastSeen:firebase.database.ServerValue.TIMESTAMP});
+      presRef.set({online:true,lastSeen:firebase.database.ServerValue.TIMESTAMP,name:currentUser._dname||currentUser.email});
+    }
+  });
+}
+
+function friendSearch(){
+  const q=document.getElementById('friend-search-input').value.trim();
+  if(!q||q.length<2){toast('En az 2 karakter girin');return;}
+  if(!fbDb){toast('Bağlantı yok');return;}
+  const resultsEl=document.getElementById('friend-search-results');
+  resultsEl.innerHTML='<div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:8px;">Aranıyor...</div>';
+  // users koleksiyonunda username ara
+  fbDb.ref('users').orderByChild('username').once('value').then(snap=>{
+    const data=snap.val()||{};
+    const matches=[];
+    const qLower=q.toLowerCase();
+    Object.entries(data).forEach(([uid,u])=>{
+      if(uid===currentUser.uid)return;
+      const name=(u.username||'').toLowerCase();
+      if(name.includes(qLower)){
+        matches.push({uid,username:u.username,email:u.email});
+      }
+    });
+    if(matches.length===0){
+      resultsEl.innerHTML='<div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:8px;">Kullanıcı bulunamadı</div>';
+      return;
+    }
+    resultsEl.innerHTML='';
+    matches.slice(0,10).forEach(u=>{
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--s2);border-radius:6px;margin-bottom:4px;';
+      row.innerHTML=`<div style="width:28px;height:28px;border-radius:50%;background:rgba(201,168,76,0.15);display:flex;align-items:center;justify-content:center;color:var(--gold);font-weight:700;font-family:'Cinzel',serif;">${esc(u.username[0]?.toUpperCase()||'?')}</div><div style="flex:1;font-size:0.85rem;">${esc(u.username)}</div>`;
+      const addBtn=document.createElement('button');
+      addBtn.className='tavbtn';
+      addBtn.style.cssText='font-size:0.7rem;padding:5px 10px;';
+      // Durumu kontrol et
+      if(myFriends[u.uid]){
+        addBtn.textContent='✓ Arkadaş';
+        addBtn.disabled=true;
+      } else {
+        addBtn.textContent='+ Ekle';
+        addBtn.onclick=()=>friendSendRequest(u.uid,u.username);
+      }
+      row.appendChild(addBtn);
+      resultsEl.appendChild(row);
+    });
+  }).catch(e=>{
+    console.error('Search error:',e);
+    resultsEl.innerHTML='<div style="color:var(--red);font-size:0.8rem;text-align:center;padding:8px;">Arama başarısız oldu</div>';
+  });
+}
+
+function friendSendRequest(targetUid,targetName){
+  if(!currentUser||!fbDb)return;
+  const myUid=currentUser.uid;
+  const myName=currentUser._dname||currentUser.email||'Oyuncu';
+  // Kendi outgoing + karşıda incoming kaydet
+  const updates={};
+  updates[`friendRequests/${targetUid}/${myUid}`]={from:myUid,fromName:myName,ts:Date.now()};
+  updates[`friendRequestsOut/${myUid}/${targetUid}`]={to:targetUid,toName:targetName,ts:Date.now()};
+  fbDb.ref().update(updates).then(()=>{
+    toast('✓ İstek gönderildi: '+targetName);
+  }).catch(e=>{
+    console.error(e);
+    toast('İstek gönderilemedi');
+  });
+}
+
+function listenFriendRequests(){
+  if(!currentUser||!fbDb)return;
+  const uid=currentUser.uid;
+  if(friendsListeners.requests)fbDb.ref('friendRequests/'+uid).off();
+  friendsListeners.requests=fbDb.ref('friendRequests/'+uid).on('value',snap=>{
+    renderFriendRequests(snap.val()||{});
+  });
+}
+
+function renderFriendRequests(requests){
+  const list=document.getElementById('friend-requests-list');
+  const count=document.getElementById('friend-requests-count');
+  const badge=document.getElementById('friends-badge');
+  const entries=Object.entries(requests);
+  count.textContent=`(${entries.length})`;
+  if(badge){
+    if(entries.length>0){badge.style.display='inline-flex';badge.textContent=entries.length;}
+    else badge.style.display='none';
+  }
+  if(entries.length===0){
+    list.innerHTML='<div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:10px;">Bekleyen istek yok</div>';
+    return;
+  }
+  list.innerHTML='';
+  entries.forEach(([fromUid,req])=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;background:var(--s2);border-radius:6px;margin-bottom:4px;';
+    row.innerHTML=`<div style="width:28px;height:28px;border-radius:50%;background:rgba(201,168,76,0.15);display:flex;align-items:center;justify-content:center;color:var(--gold);font-weight:700;font-family:'Cinzel',serif;">${esc(req.fromName[0]?.toUpperCase()||'?')}</div><div style="flex:1;font-size:0.85rem;">${esc(req.fromName)}</div>`;
+    const acceptBtn=document.createElement('button');
+    acceptBtn.className='tavbtn primary';
+    acceptBtn.style.cssText='font-size:0.7rem;padding:5px 10px;';
+    acceptBtn.textContent='✓';
+    acceptBtn.title='Kabul et';
+    acceptBtn.onclick=()=>friendAcceptRequest(fromUid,req.fromName);
+    const rejectBtn=document.createElement('button');
+    rejectBtn.className='tavbtn';
+    rejectBtn.style.cssText='font-size:0.7rem;padding:5px 10px;';
+    rejectBtn.textContent='✗';
+    rejectBtn.title='Reddet';
+    rejectBtn.onclick=()=>friendRejectRequest(fromUid);
+    row.appendChild(acceptBtn);
+    row.appendChild(rejectBtn);
+    list.appendChild(row);
+  });
+}
+
+function friendAcceptRequest(fromUid,fromName){
+  if(!currentUser||!fbDb)return;
+  const myUid=currentUser.uid;
+  const myName=currentUser._dname||currentUser.email||'Oyuncu';
+  const updates={};
+  // Karşılıklı arkadaş ekle
+  updates[`friends/${myUid}/${fromUid}`]={name:fromName,since:Date.now()};
+  updates[`friends/${fromUid}/${myUid}`]={name:myName,since:Date.now()};
+  // İstekleri sil
+  updates[`friendRequests/${myUid}/${fromUid}`]=null;
+  updates[`friendRequestsOut/${fromUid}/${myUid}`]=null;
+  fbDb.ref().update(updates).then(()=>{
+    toast('🎉 '+fromName+' artık arkadaşın!');
+  }).catch(e=>{console.error(e);toast('Hata');});
+}
+
+function friendRejectRequest(fromUid){
+  if(!currentUser||!fbDb)return;
+  const myUid=currentUser.uid;
+  const updates={};
+  updates[`friendRequests/${myUid}/${fromUid}`]=null;
+  updates[`friendRequestsOut/${fromUid}/${myUid}`]=null;
+  fbDb.ref().update(updates);
+  toast('İstek reddedildi');
+}
+
+function listenFriends(){
+  if(!currentUser||!fbDb)return;
+  const uid=currentUser.uid;
+  if(friendsListeners.friends)fbDb.ref('friends/'+uid).off();
+  friendsListeners.friends=fbDb.ref('friends/'+uid).on('value',snap=>{
+    myFriends=snap.val()||{};
+    renderFriendsList();
+  });
+}
+
+function renderFriendsList(){
+  const list=document.getElementById('friends-list');
+  const count=document.getElementById('friends-count');
+  const entries=Object.entries(myFriends);
+  count.textContent=`(${entries.length})`;
+  if(entries.length===0){
+    list.innerHTML='<div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:10px;">Henüz arkadaş yok</div>';
+    return;
+  }
+  list.innerHTML='';
+  entries.forEach(([fUid,f])=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;background:var(--s2);border-radius:6px;margin-bottom:4px;cursor:pointer;transition:all 0.15s;';
+    row.onmouseenter=()=>row.style.background='rgba(201,168,76,0.1)';
+    row.onmouseleave=()=>row.style.background='var(--s2)';
+    row.onclick=()=>friendOpenChat(fUid,f.name);
+    // Online status check
+    const statusDot=`<div id="pres-${fUid}" style="width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0;"></div>`;
+    row.innerHTML=`<div style="width:34px;height:34px;border-radius:50%;background:rgba(201,168,76,0.15);display:flex;align-items:center;justify-content:center;color:var(--gold);font-weight:700;font-family:'Cinzel',serif;">${esc(f.name[0]?.toUpperCase()||'?')}</div>${statusDot}<div style="flex:1;"><div style="font-size:0.9rem;">${esc(f.name)}</div><div id="pres-txt-${fUid}" style="font-size:0.65rem;color:var(--muted);">Çevrimdışı</div></div><div style="font-size:0.7rem;color:var(--muted);">💬</div>`;
+    // Unread badge
+    const unread=document.createElement('div');
+    unread.id='unread-'+fUid;
+    unread.style.cssText='display:none;background:#e74c3c;color:white;border-radius:50%;width:20px;height:20px;font-size:0.65rem;align-items:center;justify-content:center;font-weight:700;';
+    row.appendChild(unread);
+    list.appendChild(row);
+    // Presence dinle
+    listenFriendPresence(fUid);
+    // Unread hesapla
+    checkUnreadMessages(fUid);
+  });
+}
+
+function listenFriendPresence(fUid){
+  if(!fbDb)return;
+  fbDb.ref('presence/'+fUid).on('value',snap=>{
+    const p=snap.val();
+    const dot=document.getElementById('pres-'+fUid);
+    const txt=document.getElementById('pres-txt-'+fUid);
+    if(!dot)return;
+    if(p&&p.online){
+      dot.style.background='#27ae60';
+      if(txt)txt.textContent='🟢 Çevrimiçi';
+    } else {
+      dot.style.background='var(--muted)';
+      if(txt){
+        if(p&&p.lastSeen){
+          const ago=Math.floor((Date.now()-p.lastSeen)/60000);
+          if(ago<1)txt.textContent='Az önce';
+          else if(ago<60)txt.textContent=ago+'dk önce';
+          else if(ago<1440)txt.textContent=Math.floor(ago/60)+'sa önce';
+          else txt.textContent='Çevrimdışı';
+        } else txt.textContent='Çevrimdışı';
+      }
+    }
+  });
+}
+
+// Chat anahtarı - iki uid'yi alfabetik sırala
+function chatKey(u1,u2){return [u1,u2].sort().join('__');}
+
+function friendOpenChat(fUid,fName){
+  friendsCurrentChat={uid:fUid,name:fName};
+  document.getElementById('friend-chat-title').textContent='💬 '+fName;
+  document.getElementById('friend-chat-messages').innerHTML='<div style="text-align:center;color:var(--muted);font-size:0.8rem;padding:10px;">Yükleniyor...</div>';
+  document.getElementById('friend-chat-status').textContent='';
+  showSc('friend-chat');
+  // Mesajları yükle
+  const key=chatKey(currentUser.uid,fUid);
+  if(friendsListeners.chat)fbDb.ref('chats/'+friendsListeners.chatKey).off();
+  friendsListeners.chatKey=key;
+  friendsListeners.chat=fbDb.ref('chats/'+key).orderByChild('ts').limitToLast(100).on('value',snap=>{
+    renderChatMessages(snap.val()||{});
+    // Okundu işaretle
+    markChatRead(fUid);
+  });
+  // Presence
+  fbDb.ref('presence/'+fUid).once('value').then(s=>{
+    const p=s.val();
+    const st=document.getElementById('friend-chat-status');
+    if(p&&p.online)st.textContent='🟢 Çevrimiçi';
+    else st.textContent='Çevrimdışı';
+  });
+}
+
+function renderChatMessages(msgs){
+  const box=document.getElementById('friend-chat-messages');
+  box.innerHTML='';
+  const entries=Object.entries(msgs).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
+  if(entries.length===0){
+    box.innerHTML='<div style="text-align:center;color:var(--muted);font-size:0.8rem;padding:20px;">Henüz mesaj yok. İlk mesajı sen at!</div>';
+    return;
+  }
+  entries.forEach(([id,m])=>{
+    const div=document.createElement('div');
+    const isMe=m.from===currentUser.uid;
+    div.style.cssText=`max-width:75%;padding:7px 11px;border-radius:12px;font-size:0.85rem;${isMe?'align-self:flex-end;background:rgba(36,113,163,0.25);border:1px solid rgba(36,113,163,0.4);':'align-self:flex-start;background:var(--s2);border:1px solid var(--bd);'}`;
+    const time=new Date(m.ts).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'});
+    div.innerHTML=`<div>${esc(m.text)}</div><div style="font-size:0.6rem;color:var(--muted);margin-top:3px;text-align:right;">${time}</div>`;
+    box.appendChild(div);
+  });
+  box.scrollTop=box.scrollHeight;
+}
+
+function friendSendMessage(){
+  if(!friendsCurrentChat||!currentUser||!fbDb)return;
+  const input=document.getElementById('friend-chat-input');
+  const text=input.value.trim();
+  if(!text)return;
+  input.value='';
+  const key=chatKey(currentUser.uid,friendsCurrentChat.uid);
+  const msg={from:currentUser.uid,fromName:currentUser._dname||currentUser.email,text:text.slice(0,200),ts:Date.now()};
+  fbDb.ref('chats/'+key).push(msg).catch(e=>{toast('Mesaj gönderilemedi');console.error(e);});
+  // Karşı tarafa unread bildirim
+  fbDb.ref(`unread/${friendsCurrentChat.uid}/${currentUser.uid}`).set(Date.now());
+}
+
+function friendInviteToGame(){
+  if(!friendsCurrentChat||!currentUser||!fbDb)return;
+  if(!roomCode){toast('Önce oda aç!');return;}
+  const msg={from:currentUser.uid,fromName:currentUser._dname||currentUser.email,text:`🎮 Oyuna davet: ${GLBL[curGame]||curGame} · Kod: ${roomCode}`,ts:Date.now(),isInvite:true,code:roomCode,game:curGame};
+  const key=chatKey(currentUser.uid,friendsCurrentChat.uid);
+  fbDb.ref('chats/'+key).push(msg).then(()=>{
+    toast('✓ Davet gönderildi!');
+  });
+  fbDb.ref(`unread/${friendsCurrentChat.uid}/${currentUser.uid}`).set(Date.now());
+}
+
+function listenAllFriendMessages(){
+  if(!currentUser||!fbDb)return;
+  // Unread mesajları dinle
+  fbDb.ref('unread/'+currentUser.uid).on('value',snap=>{
+    const unread=snap.val()||{};
+    const totalUnread=Object.keys(unread).length;
+    const badge=document.getElementById('friends-badge');
+    // Gelen istek badge ile birleştir
+    // Her arkadaş için unread göster
+    Object.keys(myFriends).forEach(fUid=>{
+      const el=document.getElementById('unread-'+fUid);
+      if(el){
+        if(unread[fUid]){el.style.display='inline-flex';el.textContent='•';}
+        else el.style.display='none';
+      }
+    });
+  });
+}
+
+function checkUnreadMessages(fUid){
+  // Bu arkadaştan okunmamış mesaj var mı?
+  if(!currentUser||!fbDb)return;
+  fbDb.ref(`unread/${currentUser.uid}/${fUid}`).once('value').then(snap=>{
+    const el=document.getElementById('unread-'+fUid);
+    if(el){
+      if(snap.val()){el.style.display='inline-flex';el.textContent='•';}
+      else el.style.display='none';
+    }
+  });
+}
+
+function markChatRead(fUid){
+  if(!currentUser||!fbDb)return;
+  fbDb.ref(`unread/${currentUser.uid}/${fUid}`).remove();
+}
+
+
 // ===== ÖZEL ODA =====
 let roomType='public'; // 'public' | 'private'
 
@@ -4112,6 +4538,7 @@ function initAuth(){
         const localName=localStorage.getItem('username_'+user.uid)||'';
         function applyUserName(dname){
           currentUser._dname=dname;
+          setTimeout(initFriendsSystem, 500);
           const inp=document.getElementById('uname');
           if(inp){inp.value=dname;inp.setAttribute('readonly','');inp.style.opacity='0.7';inp.style.cursor='default';}
           const av=document.getElementById('auth-avatar-home');
